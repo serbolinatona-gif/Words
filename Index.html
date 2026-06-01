@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>∴</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+
+body {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background: #000;
+  cursor: none;
+}
+
+#video {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+  z-index: 1;
+}
+
+#canvas-overlay {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 2;
+  pointer-events: none;
+  transform: scaleX(-1);
+}
+
+#words-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.word-el {
+  position: absolute;
+  font-family: 'Futura', 'Century Gothic', 'Trebuchet MS', sans-serif;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  pointer-events: none;
+  mix-blend-mode: screen;
+  text-shadow: 0 0 40px currentColor, 0 0 80px currentColor;
+  user-select: none;
+  will-change: transform;
+}
+
+.word-el.in {
+  animation: wIn 0.35s cubic-bezier(0.16,1,0.3,1) forwards;
+}
+
+@keyframes wIn {
+  from { opacity:0; filter:blur(12px); transform:translate(-50%,-50%) scale(0.7); }
+  to   { opacity:1; filter:blur(0);    transform:translate(-50%,-50%) scale(1); }
+}
+
+#subtitle-bar {
+  position: fixed;
+  bottom: 0; left: 0;
+  width: 100%;
+  padding: 16px 48px 28px;
+  z-index: 4;
+  pointer-events: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  align-items: flex-end;
+  min-height: 72px;
+  background: linear-gradient(transparent, rgba(0,0,0,0.5));
+}
+
+.sw {
+  font-family: 'Futura', 'Century Gothic', 'Trebuchet MS', sans-serif;
+  font-weight: 600;
+  font-size: clamp(16px, 2.4vw, 28px);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  animation: swIn 0.25s ease forwards;
+  opacity: 0;
+}
+
+@keyframes swIn {
+  from { opacity:0; transform:translateY(6px); }
+  to   { opacity:1; transform:translateY(0); }
+}
+
+/* HUD — minimal corner elements only */
+#hud-tl {
+  position: fixed;
+  top: 20px; left: 22px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+#mic-ring {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: #333;
+  transition: background 0.3s, box-shadow 0.3s;
+}
+#mic-ring.on {
+  background: #ff3a5c;
+  box-shadow: 0 0 10px #ff3a5c88;
+  animation: blink 1.4s infinite;
+}
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.35} }
+
+/* start overlay */
+#gate {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#gate-btn {
+  width: 72px; height: 72px;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.25);
+  background: transparent;
+  cursor: pointer;
+  position: relative;
+  transition: border-color 0.3s, box-shadow 0.3s;
+}
+#gate-btn::after {
+  content: '';
+  position: absolute;
+  inset: -12px;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.07);
+}
+#gate-btn:hover {
+  border-color: rgba(255,255,255,0.6);
+  box-shadow: 0 0 40px rgba(255,255,255,0.08);
+}
+#gate-btn svg { width:22px; height:22px; fill:rgba(255,255,255,0.7); }
+
+/* scan line atmosphere */
+#scanlines {
+  position: fixed;
+  inset: 0;
+  z-index: 6;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0,0,0,0.03) 2px,
+    rgba(0,0,0,0.03) 4px
+  );
+  opacity: 0.4;
+}
+
+/* vignette */
+#vignette {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.7) 100%);
+}
+
+/* crosshair cursor */
+#xhair {
+  position: fixed;
+  z-index: 9;
+  pointer-events: none;
+  transform: translate(-50%,-50%);
+  display: none;
+}
+#xhair svg { width:28px; height:28px; }
+</style>
+</head>
+<body>
+
+<div id="gate">
+  <button id="gate-btn" onclick="boot()">
+    <svg viewBox="0 0 24 24"><polygon points="8,5 19,12 8,19"/></svg>
+  </button>
+</div>
+
+<video id="video" autoplay muted playsinline></video>
+<canvas id="canvas-overlay"></canvas>
+<div id="words-layer"></div>
+<div id="subtitle-bar"></div>
+<div id="vignette"></div>
+<div id="scanlines"></div>
+
+<div id="hud-tl"><div id="mic-ring"></div></div>
+
+<div id="xhair">
+  <svg viewBox="0 0 28 28" fill="none">
+    <circle cx="14" cy="14" r="6" stroke="rgba(255,255,255,0.7)" stroke-width="1"/>
+    <line x1="14" y1="0" x2="14" y2="8" stroke="rgba(255,255,255,0.5)" stroke-width="1"/>
+    <line x1="14" y1="20" x2="14" y2="28" stroke="rgba(255,255,255,0.5)" stroke-width="1"/>
+    <line x1="0" y1="14" x2="8" y2="14" stroke="rgba(255,255,255,0.5)" stroke-width="1"/>
+    <line x1="20" y1="14" x2="28" y2="14" stroke="rgba(255,255,255,0.5)" stroke-width="1"/>
+  </svg>
+</div>
+
+<script>
+const COLORS = [
+  '#FF4D6D','#FF6B6B','#FF3A5C',
+  '#C77DFF','#9D4EDD','#E0AAFF',
+  '#4CC9F0','#4361EE','#7DF9FF',
+  '#FFD166','#FFE66D','#FF9E00',
+  '#FFFFFF','#F0E6FF',
+  '#F72585',
+];
+
+const words = [];
+let handState = null;
+let wordsLayer, subtitleBar, videoEl, cvs, ctx, xhair, micRing;
+
+async function boot() {
+  document.getElementById('gate').style.transition = 'opacity 0.6s';
+  document.getElementById('gate').style.opacity = '0';
+  setTimeout(() => document.getElementById('gate').remove(), 700);
+
+  wordsLayer   = document.getElementById('words-layer');
+  subtitleBar  = document.getElementById('subtitle-bar');
+  videoEl      = document.getElementById('video');
+  cvs          = document.getElementById('canvas-overlay');
+  ctx          = cvs.getContext('2d');
+  xhair        = document.getElementById('xhair');
+  micRing      = document.getElementById('mic-ring');
+
+  resize();
+  window.addEventListener('resize', resize);
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode:'user', width:{ideal:1280}, height:{ideal:720} },
+      audio: false
+    });
+    videoEl.srcObject = stream;
+    await videoEl.play();
+  } catch(e) { console.warn('cam', e); }
+
+  initSpeech();
+  await loadHands();
+  loop();
+}
+
+function resize() {
+  cvs.width  = window.innerWidth;
+  cvs.height = window.innerHeight;
+}
+
+/* ── SPEECH ── */
+function initSpeech() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) return;
+  const r = new SR();
+  r.continuous = true;
+  r.interimResults = true;
+  r.lang = 'ru-RU';
+
+  r.onstart = () => micRing.classList.add('on');
+
+  r.onresult = e => {
+    let final = '', interim = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const t = e.results[i][0].transcript.trim();
+      e.results[i].isFinal ? (final += t + ' ') : (interim += t + ' ');
+    }
+    if (final) {
+      const ws = final.trim().split(/\s+/).filter(Boolean);
+      ws.forEach(w => spawnWord(w));
+      addSubs(ws, false);
+    } else if (interim) {
+      addSubs(interim.trim().split(/\s+/).filter(Boolean), true);
+    }
+  };
+
+  r.onerror = () => {};
+  r.onend   = () => { micRing.classList.remove('on'); setTimeout(() => { try{r.start()}catch(e){} }, 400); };
+  r.start();
+}
+
+let subInterimEls = [];
+function addSubs(ws, isInterim) {
+  subInterimEls.forEach(e => e.remove());
+  subInterimEls = [];
+  ws.forEach((w, i) => {
+    const el = document.createElement('span');
+    el.className = 'sw';
+    el.textContent = w;
+    el.style.color = isInterim ? 'rgba(255,255,255,0.3)' : rndColor();
+    el.style.animationDelay = i * 0.055 + 's';
+    subtitleBar.appendChild(el);
+    if (isInterim) subInterimEls.push(el);
+  });
+  // trim
+  const all = subtitleBar.querySelectorAll('.sw:not(.interim)');
+  if (all.length > 35) for (let i = 0; i < all.length - 35; i++) all[i].remove();
+}
+
+/* ── WORDS ── */
+function spawnWord(text) {
+  const el = document.createElement('div');
+  el.className = 'word-el in';
+  el.textContent = text.toUpperCase();
+
+  const fs   = 26 + Math.random() * 36;
+  const color = rndColor();
+  const x    = window.innerWidth  * (0.15 + Math.random() * 0.7);
+  const y    = window.innerHeight * (0.1  + Math.random() * 0.65);
+  const rot  = (Math.random() - 0.5) * 10;
+
+  el.style.cssText = `left:${x}px;top:${y}px;font-size:${fs}px;color:${color};transform:translate(-50%,-50%) rotate(${rot}deg)`;
+  wordsLayer.appendChild(el);
+  el.addEventListener('animationend', () => el.classList.remove('in'), {once:true});
+
+  const obj = { el, x, y, fs, rot, color, text,
+    scX:1, scY:1,
+    vx:(Math.random()-.5)*.35,
+    vy:(Math.random()-.5)*.35
+  };
+  words.push(obj);
+  if (words.length > 22) {
+    const old = words.shift();
+    old.el.style.transition = 'opacity 0.7s';
+    old.el.style.opacity = '0';
+    setTimeout(() => old.el.remove(), 750);
+  }
+  return obj;
+}
+
+function applyTransform(w) {
+  w.el.style.left      = w.x + 'px';
+  w.el.style.top       = w.y + 'px';
+  w.el.style.fontSize  = w.fs + 'px';
+  w.el.style.transform = `translate(-50%,-50%) rotate(${w.rot}deg) scale(${w.scX},${w.scY})`;
+}
+
+function rndColor() { return COLORS[Math.floor(Math.random() * COLORS.length)]; }
+
+function nearest(x, y, radius = 260) {
+  let best = null, bd = Infinity;
+  words.forEach((w, i) => {
+    const d = Math.hypot(w.x - x, w.y - y);
+    if (d < bd) { bd = d; best = i; }
+  });
+  return bd < radius ? best : null;
+}
+
+/* ── MEDIAPIPE HANDS ── */
+async function loadHands() {
+  const load = src => new Promise(res => {
+    const s = document.createElement('script');
+    s.src = src; s.onload = res; s.onerror = res;
+    document.head.appendChild(s);
+  });
+
+  await load('https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js');
+  await load('https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js');
+
+  try {
+    const H = new Hands({ locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}` });
+    H.setOptions({ maxNumHands:2, modelComplexity:1, minDetectionConfidence:.7, minTrackingConfidence:.5 });
+    H.onResults(onHands);
+
+    const Cam = window.Camera;
+    new Cam(videoEl, {
+      onFrame: async () => await H.send({ image: videoEl }),
+      width: 1280, height: 720
+    }).start();
+  } catch(e) {
+    mouseFallback();
+  }
+}
+
+function onHands(res) {
+  ctx.clearRect(0, 0, cvs.width, cvs.height);
+
+  const W = cvs.width, H = cvs.height;
+  const lms = res.multiHandLandmarks;
+
+  if (!lms || lms.length === 0) {
+    xhair.style.display = 'none';
+    handState = null;
+    return;
+  }
+
+  lms.forEach(lm => drawSkeleton(lm, W, H));
+
+  if (lms.length === 1) {
+    const lm = lms[0];
+    const ix = (1 - lm[8].x) * W;
+    const iy = lm[8].y * H;
+    const tx = (1 - lm[4].x) * W;
+    const ty = lm[4].y * H;
+
+    xhair.style.display = 'block';
+    xhair.style.left = ix + 'px';
+    xhair.style.top  = iy + 'px';
+
+    const pinch = Math.hypot(tx - ix, ty - iy) < 42;
+    const fist  = isFist(lm);
+
+    if (fist) {
+      handState = null;
+    } else if (pinch) {
+      if (!handState || handState.mode !== 'drag') {
+        const ni = nearest(ix, iy);
+        if (ni !== null) {
+          handState = { mode:'drag', wi:ni, ox:ix - words[ni].x, oy:iy - words[ni].y };
+        }
+      } else if (handState.wi < words.length) {
+        const w = words[handState.wi];
+        w.x = ix - handState.ox;
+        w.y = iy - handState.oy;
+        applyTransform(w);
+      }
+    } else {
+      if (handState && handState.mode === 'drag') handState = null;
+    }
+
+  } else if (lms.length >= 2) {
+    const lm0 = lms[0], lm1 = lms[1];
+    const i0 = { x:(1-lm0[8].x)*W, y:lm0[8].y*H };
+    const i1 = { x:(1-lm1[8].x)*W, y:lm1[8].y*H };
+    const mid = { x:(i0.x+i1.x)/2, y:(i0.y+i1.y)/2 };
+    const dist = Math.hypot(i0.x-i1.x, i0.y-i1.y);
+
+    xhair.style.display = 'block';
+    xhair.style.left = mid.x + 'px';
+    xhair.style.top  = mid.y + 'px';
+
+    // draw tension line
+    ctx.save();
+    ctx.strokeStyle = 'rgba(76,201,240,0.4)';
+    ctx.lineWidth = 1; ctx.setLineDash([4,5]);
+    ctx.beginPath();
+    ctx.moveTo(lm0[8].x * W, i0.y);
+    ctx.lineTo(lm1[8].x * W, i1.y);
+    ctx.stroke();
+    ctx.restore();
+
+    if (!handState || handState.mode !== 'two') {
+      const ni = nearest(mid.x, mid.y);
+      if (ni !== null) {
+        const w = words[ni];
+        handState = {
+          mode:'two', wi:ni,
+          d0:dist, fs0:w.fs, scX0:w.scX, scY0:w.scY,
+          ang0: Math.atan2(i1.y-i0.y, i1.x-i0.x),
+          rot0: w.rot,
+          mx0:mid.x, my0:mid.y
+        };
+      }
+    } else if (handState.wi < words.length) {
+      const w   = words[handState.wi];
+      const s   = handState;
+      const ratio = dist / s.d0;
+      const ang = Math.atan2(i1.y-i0.y, i1.x-i0.x);
+
+      w.fs  = Math.max(10, Math.min(200, s.fs0 * ratio));
+      w.rot = s.rot0 + (ang - s.ang0) * (180 / Math.PI);
+
+      const hRatio = Math.abs(i0.x-i1.x) / (Math.abs(i0.x-i1.x) + Math.abs(i0.y-i1.y) + 1);
+      if (hRatio > 0.5) {
+        w.scX = Math.max(0.25, Math.min(5, s.scX0 * ratio));
+      } else {
+        w.scY = Math.max(0.25, Math.min(5, s.scY0 * ratio));
+      }
+
+      // follow midpoint
+      w.x += (mid.x - s.mx0) * 0.06;
+      w.y += (mid.y - s.my0) * 0.06;
+      s.mx0 = mid.x; s.my0 = mid.y;
+
+      applyTransform(w);
+    }
+  }
+}
+
+function isFist(lm) {
+  const tips = [8,12,16,20], bases = [5,9,13,17];
+  return tips.filter((t,i) => lm[t].y > lm[bases[i]].y).length >= 3;
+}
+
+function drawSkeleton(lm, W, H) {
+  const conn = [
+    [0,1],[1,2],[2,3],[3,4],
+    [0,5],[5,6],[6,7],[7,8],
+    [5,9],[9,10],[10,11],[11,12],
+    [9,13],[13,14],[14,15],[15,16],
+    [13,17],[0,17],[17,18],[18,19],[19,20]
+  ];
+  ctx.save();
+  ctx.strokeStyle = 'rgba(180,110,255,0.3)';
+  ctx.lineWidth = 1.2;
+  conn.forEach(([a,b]) => {
+    ctx.beginPath();
+    ctx.moveTo(lm[a].x*W, lm[a].y*H);
+    ctx.lineTo(lm[b].x*W, lm[b].y*H);
+    ctx.stroke();
+  });
+  ctx.fillStyle = 'rgba(76,201,240,0.55)';
+  [4,8,12,16,20].forEach(i => {
+    ctx.beginPath();
+    ctx.arc(lm[i].x*W, lm[i].y*H, 4, 0, Math.PI*2);
+    ctx.fill();
+  });
+  ctx.restore();
+}
+
+/* ── MOUSE FALLBACK ── */
+function mouseFallback() {
+  document.addEventListener('mousemove', e => {
+    xhair.style.display = 'block';
+    xhair.style.left = e.clientX + 'px';
+    xhair.style.top  = e.clientY + 'px';
+  });
+  document.addEventListener('mousedown', e => {
+    const ni = nearest(e.clientX, e.clientY);
+    if (ni !== null) handState = { mode:'drag', wi:ni, ox:e.clientX-words[ni].x, oy:e.clientY-words[ni].y };
+  });
+  document.addEventListener('mousemove', e => {
+    if (handState?.mode === 'drag' && handState.wi < words.length) {
+      words[handState.wi].x = e.clientX - handState.ox;
+      words[handState.wi].y = e.clientY - handState.oy;
+      applyTransform(words[handState.wi]);
+    }
+  });
+  document.addEventListener('mouseup', () => handState = null);
+  document.addEventListener('wheel', e => {
+    const ni = nearest(e.clientX, e.clientY);
+    if (ni !== null) { words[ni].fs = Math.max(10, Math.min(200, words[ni].fs - e.deltaY * 0.14)); applyTransform(words[ni]); }
+  }, {passive:true});
+}
+
+/* ── MAIN LOOP ── */
+function loop() {
+  requestAnimationFrame(loop);
+  const W = window.innerWidth, H = window.innerHeight;
+  words.forEach((w, i) => {
+    if (handState && handState.wi === i) return;
+    w.x += w.vx; w.y += w.vy;
+    if (w.x < 40)   w.vx =  Math.abs(w.vx);
+    if (w.x > W-40) w.vx = -Math.abs(w.vx);
+    if (w.y < 30)   w.vy =  Math.abs(w.vy);
+    if (w.y > H-60) w.vy = -Math.abs(w.vy);
+    w.el.style.left = w.x + 'px';
+    w.el.style.top  = w.y + 'px';
+  });
+}
+</script>
+</body>
+</html>
